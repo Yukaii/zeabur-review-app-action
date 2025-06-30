@@ -88,6 +88,18 @@ validate_env() {
         COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
     fi
 
+    # If we got a short SHA (7 chars or less), try to expand it to full SHA
+    if [ ${#COMMIT_SHA} -le 7 ] && [ "$COMMIT_SHA" != "unknown" ]; then
+        log_info "Received short SHA: $COMMIT_SHA, attempting to expand to full SHA"
+        FULL_SHA=$(git rev-parse "$COMMIT_SHA" 2>/dev/null || echo "")
+        if [ -n "$FULL_SHA" ]; then
+            COMMIT_SHA="$FULL_SHA"
+            log_info "Expanded to full SHA: $COMMIT_SHA"
+        else
+            log_warning "Could not expand short SHA $COMMIT_SHA to full SHA, using as-is"
+        fi
+    fi
+
     # For display purposes, we'll use a short version, but keep the full SHA for image tags
     COMMIT_SHA_SHORT="${COMMIT_SHA:0:7}"
 
