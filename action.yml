@@ -1,0 +1,140 @@
+name: 'Zeabur Review App'
+description: 'Deploy, manage, and cleanup Zeabur review apps for pull requests'
+author: 'Disfactory Team'
+inputs:
+  action:
+    description: 'Action to perform: deploy, cleanup, or status'
+    required: true
+    default: 'deploy'
+  zeabur-api-key:
+    description: 'Zeabur API key for authentication'
+    required: true
+  zeabur-project-id:
+    description: 'Zeabur project ID where services will be deployed'
+    required: true
+  pr-number:
+    description: 'Pull request number for service naming'
+    required: true
+  commit-sha:
+    description: 'Git commit SHA (optional, auto-detected if not provided)'
+    required: false
+  project-name:
+    description: 'Project name for review apps'
+    required: false
+    default: 'Review App'
+  ignored-services:
+    description: 'Comma-separated list of service names to exclude from review apps'
+    required: false
+    default: ''
+  cleanup-services:
+    description: 'Comma-separated list of service names to cleanup after deployment'
+    required: false
+    default: ''
+  update-image-services:
+    description: 'Comma-separated list of service name patterns to update with commit tags'
+    required: false
+    default: ''
+  domain-prefix:
+    description: 'Domain prefix for review apps'
+    required: false
+    default: 'app'
+  image-tag-prefix:
+    description: 'Image tag prefix for commit-specific images'
+    required: false
+    default: 'sha'
+  template-file:
+    description: 'Path to zeabur.yaml template file'
+    required: false
+    default: 'zeabur.yaml'
+  config-file:
+    description: 'Path to zeabur-config.env file'
+    required: false
+    default: 'zeabur-config.env'
+outputs:
+  review-app-url:
+    description: 'URL of the deployed review app'
+    value: ${{ steps.deploy.outputs.review-app-url }}
+  review-app-project-name:
+    description: 'Name of the deployed project'
+    value: ${{ steps.deploy.outputs.review-app-project-name }}
+  review-app-project-id:
+    description: 'ID of the deployed project'
+    value: ${{ steps.deploy.outputs.review-app-project-id }}
+  review-app-region:
+    description: 'Region where the app is deployed'
+    value: ${{ steps.deploy.outputs.review-app-region }}
+  review-app-domain:
+    description: 'Domain name of the review app'
+    value: ${{ steps.deploy.outputs.review-app-domain }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        # Install yq if not available
+        if ! command -v yq &> /dev/null; then
+          echo "Installing yq..."
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+            sudo chmod +x /usr/local/bin/yq
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install yq
+          else
+            echo "Unsupported OS for automatic yq installation: $RUNNER_OS"
+            exit 1
+          fi
+        fi
+        
+        # Install jq if not available
+        if ! command -v jq &> /dev/null; then
+          echo "Installing jq..."
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update && sudo apt-get install -y jq
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install jq
+          else
+            echo "Unsupported OS for automatic jq installation: $RUNNER_OS"
+            exit 1
+          fi
+        fi
+
+    - name: Execute Zeabur Review App Script
+      id: deploy
+      shell: bash
+      env:
+        ZEABUR_API_KEY: ${{ inputs.zeabur-api-key }}
+        ZEABUR_PROJECT_ID: ${{ inputs.zeabur-project-id }}
+        PR_NUMBER: ${{ inputs.pr-number }}
+        COMMIT_SHA: ${{ inputs.commit-sha }}
+        PROJECT_NAME: ${{ inputs.project-name }}
+        IGNORED_SERVICES: ${{ inputs.ignored-services }}
+        CLEANUP_SERVICES: ${{ inputs.cleanup-services }}
+        UPDATE_IMAGE_SERVICES: ${{ inputs.update-image-services }}
+        DOMAIN_PREFIX: ${{ inputs.domain-prefix }}
+        IMAGE_TAG_PREFIX: ${{ inputs.image-tag-prefix }}
+        ZEABUR_TEMPLATE_FILE: ${{ inputs.template-file }}
+        ZEABUR_CONFIG_FILE: ${{ inputs.config-file }}
+      run: |
+        echo "🚀 Running Zeabur Review App action: ${{ inputs.action }}"
+        echo "📝 PR Number: ${{ inputs.pr-number }}"
+        echo "📝 Commit SHA: ${{ inputs.commit-sha || 'auto-detect' }}"
+        echo "📝 Template file: ${{ inputs.template-file }}"
+        echo "📝 Config file: ${{ inputs.config-file }}"
+        
+        # Run the script from the action directory
+        ACTION_DIR="${{ github.action_path }}"
+        "$ACTION_DIR/zeabur-review-app.sh" "${{ inputs.action }}"
+        
+        # Set outputs for deploy action
+        if [ "${{ inputs.action }}" = "deploy" ]; then
+          echo "review-app-url=${REVIEW_APP_URL}" >> $GITHUB_OUTPUT
+          echo "review-app-project-name=${REVIEW_APP_PROJECT_NAME}" >> $GITHUB_OUTPUT
+          echo "review-app-project-id=${REVIEW_APP_PROJECT_ID}" >> $GITHUB_OUTPUT
+          echo "review-app-region=${REVIEW_APP_REGION}" >> $GITHUB_OUTPUT
+          echo "review-app-domain=${REVIEW_APP_DOMAIN}" >> $GITHUB_OUTPUT
+        fi
+
+branding:
+  icon: 'cloud'
+  color: 'blue'

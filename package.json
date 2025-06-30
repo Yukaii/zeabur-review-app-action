@@ -1,0 +1,42 @@
+{
+  "name": "zeabur-review-app",
+  "version": "1.0.0",
+  "description": "Deploy, manage, and cleanup Zeabur review apps for pull requests",
+  "main": "zeabur-review-app.sh",
+  "bin": {
+    "zeabur-review-app": "./zeabur-review-app.sh"
+  },
+  "scripts": {
+    "test": "bash test/test.sh",
+    "lint": "shellcheck zeabur-review-app.sh"
+  },
+  "keywords": [
+    "zeabur",
+    "review-app",
+    "deployment",
+    "github-actions",
+    "pull-request",
+    "preview"
+  ],
+  "author": "Disfactory Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Disfactory/zeabur-review-app"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "dependencies": {},
+  "devDependencies": {},
+  "files": [
+    "zeabur-review-app.sh",
+    "action.yml",
+    "README.md",
+    "LICENSE"
+  ]
+}
