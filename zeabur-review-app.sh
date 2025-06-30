@@ -43,10 +43,10 @@ DOMAIN_PREFIX="${DOMAIN_PREFIX:-app}"
 IMAGE_TAG_PREFIX="${IMAGE_TAG_PREFIX:-sha}"
 
 # Logging functions
-log_info() { echo "ℹ️  $1"; }
-log_success() { echo "✅ $1"; }
-log_warning() { echo "⚠️  $1"; }
-log_error() { echo "❌ $1"; }
+log_info() { echo "ℹ️  $1" >&2; }
+log_success() { echo "✅ $1" >&2; }
+log_warning() { echo "⚠️  $1" >&2; }
+log_error() { echo "❌ $1" >&2; }
 
 # Check required tools
 check_dependencies() {
@@ -223,7 +223,7 @@ generate_template() {
         done
     fi
 
-    # Return only the template path, no logging
+    # Return the template path
     echo "$temp_template"
 }
 
@@ -234,7 +234,8 @@ deploy_review_app() {
     local suffix=$(get_service_suffix)
     log_info "Generating template with suffix: $suffix"
 
-    local template_file=$(generate_template)
+    local template_file
+    template_file=$(generate_template)
     local domain_name=$(get_domain_name)
 
     log_info "Generated template: $template_file"
