@@ -85,11 +85,13 @@ validate_env() {
 
     # Set default commit SHA if not provided
     if [ -z "$COMMIT_SHA" ]; then
-        COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        COMMIT_SHA=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
     fi
 
-    # Truncate commit hash to 7 characters for consistency with image tags
-    COMMIT_SHA="${COMMIT_SHA:0:7}"
+    # For display purposes, we'll use a short version, but keep the full SHA for image tags
+    COMMIT_SHA_SHORT="${COMMIT_SHA:0:7}"
+
+    log_info "Using commit SHA: $COMMIT_SHA (short: $COMMIT_SHA_SHORT)"
 }
 
 # Make GraphQL API request
@@ -116,11 +118,11 @@ graphql_request() {
 
 # Generate unique service identifiers
 get_service_suffix() {
-    echo "pr-${PR_NUMBER}-${COMMIT_SHA}"
+    echo "pr-${PR_NUMBER}-${COMMIT_SHA_SHORT}"
 }
 
 get_domain_name() {
-    echo "${DOMAIN_PREFIX}-pr-${PR_NUMBER}-${COMMIT_SHA}"
+    echo "${DOMAIN_PREFIX}-pr-${PR_NUMBER}-${COMMIT_SHA_SHORT}"
 }
 
 # Generate modified template for review app
@@ -183,8 +185,8 @@ generate_template() {
     done
 
     # Update template metadata
-    yq eval -i ".metadata.name = \"${PROJECT_NAME} PR #${PR_NUMBER} (${COMMIT_SHA})\"" "$temp_template"
-    yq eval -i ".spec.description = \"Review app for PR #${PR_NUMBER} at commit ${COMMIT_SHA}\"" "$temp_template"
+    yq eval -i ".metadata.name = \"${PROJECT_NAME} PR #${PR_NUMBER} (${COMMIT_SHA_SHORT})\"" "$temp_template"
+    yq eval -i ".spec.description = \"Review app for PR #${PR_NUMBER} at commit ${COMMIT_SHA_SHORT}\"" "$temp_template"
 
     # Update image tags with commit-specific versions
     local image_tag="${IMAGE_TAG_PREFIX}-${COMMIT_SHA}"
@@ -229,7 +231,7 @@ generate_template() {
 
 # Deploy review app
 deploy_review_app() {
-    log_info "Deploying review app for PR #${PR_NUMBER} (commit: ${COMMIT_SHA})"
+    log_info "Deploying review app for PR #${PR_NUMBER} (commit: ${COMMIT_SHA_SHORT})"
 
     local suffix=$(get_service_suffix)
     log_info "Generating template with suffix: $suffix"
@@ -455,8 +457,8 @@ cleanup_review_app() {
 
     # If commit SHA is provided, clean up specific commit
     if [ -n "$COMMIT_SHA" ] && [ "$COMMIT_SHA" != "unknown" ]; then
-        pr_pattern="pr-${PR_NUMBER}-${COMMIT_SHA}"
-        log_info "Cleaning up specific commit: $COMMIT_SHA"
+        pr_pattern="pr-${PR_NUMBER}-${COMMIT_SHA_SHORT}"
+        log_info "Cleaning up specific commit: $COMMIT_SHA_SHORT"
     else
         log_info "Cleaning up all services for PR #${PR_NUMBER}"
     fi
