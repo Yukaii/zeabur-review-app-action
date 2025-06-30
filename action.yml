@@ -85,7 +85,7 @@ runs:
             exit 1
           fi
         fi
-        
+
         # Install jq if not available
         if ! command -v jq &> /dev/null; then
           echo "Installing jq..."
@@ -121,18 +121,30 @@ runs:
         echo "📝 Commit SHA: ${{ inputs.commit-sha || 'auto-detect' }}"
         echo "📝 Template file: ${{ inputs.template-file }}"
         echo "📝 Config file: ${{ inputs.config-file }}"
-        
+
         # Run the script from the action directory
         ACTION_DIR="${{ github.action_path }}"
         "$ACTION_DIR/zeabur-review-app.sh" "${{ inputs.action }}"
-        
+
         # Set outputs for deploy action
         if [ "${{ inputs.action }}" = "deploy" ]; then
-          echo "review-app-url=${REVIEW_APP_URL}" >> $GITHUB_OUTPUT
-          echo "review-app-project-name=${REVIEW_APP_PROJECT_NAME}" >> $GITHUB_OUTPUT
-          echo "review-app-project-id=${REVIEW_APP_PROJECT_ID}" >> $GITHUB_OUTPUT
-          echo "review-app-region=${REVIEW_APP_REGION}" >> $GITHUB_OUTPUT
-          echo "review-app-domain=${REVIEW_APP_DOMAIN}" >> $GITHUB_OUTPUT
+          # Read the environment variables that were set by the script
+          if [ -f "$GITHUB_ENV" ]; then
+            # Source the environment file to get the variables
+            set -a
+            source "$GITHUB_ENV"
+            set +a
+          fi
+
+          echo "review-app-url=${REVIEW_APP_URL:-}" >> $GITHUB_OUTPUT
+          echo "review-app-project-name=${REVIEW_APP_PROJECT_NAME:-}" >> $GITHUB_OUTPUT
+          echo "review-app-project-id=${REVIEW_APP_PROJECT_ID:-}" >> $GITHUB_OUTPUT
+          echo "review-app-region=${REVIEW_APP_REGION:-}" >> $GITHUB_OUTPUT
+          echo "review-app-domain=${REVIEW_APP_DOMAIN:-}" >> $GITHUB_OUTPUT
+
+          # Debug output
+          echo "Debug: REVIEW_APP_URL=${REVIEW_APP_URL:-NOT_SET}"
+          echo "Debug: REVIEW_APP_PROJECT_NAME=${REVIEW_APP_PROJECT_NAME:-NOT_SET}"
         fi
 
 branding:
