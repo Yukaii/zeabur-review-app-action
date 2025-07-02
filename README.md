@@ -168,6 +168,18 @@ spec:
 4. **Dependency Updates**: Service dependencies are automatically updated to match new names
 5. **Smart Cleanup**: When cleaning up PRs, the action keeps the most recent N commits (configurable via `KEEP_RECENT_COMMITS`) and removes older ones to prevent accumulation of outdated deployments
 
+### Cleanup Behavior
+
+The action provides two cleanup modes:
+
+- **Specific Commit Cleanup**: When `COMMIT_SHA` is provided, only services for that specific commit are removed
+- **Smart PR Cleanup**: When no `COMMIT_SHA` is provided, the action:
+  1. Discovers all commits for the PR from git history or existing services
+  2. Keeps the N most recent commits (default: 3, configurable via `KEEP_RECENT_COMMITS`)
+  3. Removes services for older commits to prevent accumulation of outdated deployments
+  
+This ensures that long-running PRs don't accumulate too many review app deployments while preserving recent ones for testing.
+
 ## Requirements
 
 - `curl` - For API requests
@@ -205,19 +217,52 @@ spec:
     cleanup-services: "Database"
     update-image-services: "Backend,Frontend"
     domain-prefix: "disfactory"
+    keep-recent-commits: "5"
     template-file: "deployment/zeabur.yaml"
 ```
 
-### Cleanup on PR Close
+### Smart Cleanup with Commit Retention
 
 ```yaml
-name: Cleanup Review App
+- name: Cleanup Old Review Apps
+  uses: Yukaii/zeabur-review-app-action@main
+  with:
+    action: cleanup
+    zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
+    zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
+    pr-number: ${{ github.event.number }}
+    keep-recent-commits: "3"  # Keep only the 3 most recent commits
+```
+
+### Complete Workflow Example
+
+```yaml
+name: Review App Management
 on:
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, closed]
 
 jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Deploy Review App
+        uses: Yukaii/zeabur-review-app-action@main
+        with:
+          action: deploy
+          zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
+          zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
+          pr-number: ${{ github.event.number }}
+          commit-sha: ${{ github.sha }}
+          project-name: "My Project"
+          keep-recent-commits: "3"
+
   cleanup:
+    if: github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup Review App
@@ -227,6 +272,7 @@ jobs:
           zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
           zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
           pr-number: ${{ github.event.number }}
+          keep-recent-commits: "3"  # Keeps 3 most recent commits, removes older ones
 ```
 
 ## License
