@@ -1,6 +1,8 @@
 # Zeabur Review App Action
 
-A GitHub composite action and standalone script for deploying, managing, and cleaning up Zeabur review apps for pull requests with commit-level isolation.
+A standalone GitHub composite action for deploying, managing, and cleaning up Zeabur review apps for pull requests with commit-level isolation.
+
+> **📦 Standalone Action**: This action is now available as a standalone repository and can be used in any project without needing to copy files.
 
 ## Features
 
@@ -29,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Deploy Review App
-        uses: ./path/to/zeabur-review-app-action
+        uses: Yukaii/zeabur-review-app-action@main
         with:
           action: deploy
           zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
@@ -176,7 +178,7 @@ spec:
 
 ```yaml
 - name: Deploy Review App
-  uses: ./zeabur-review-app-action
+  uses: Yukaii/zeabur-review-app-action@main
   with:
     action: deploy
     zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
@@ -188,7 +190,7 @@ spec:
 
 ```yaml
 - name: Deploy Review App
-  uses: ./zeabur-review-app-action
+  uses: Yukaii/zeabur-review-app-action@main
   with:
     action: deploy
     zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
@@ -216,7 +218,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup Review App
-        uses: ./zeabur-review-app-action
+        uses: Yukaii/zeabur-review-app-action@main
         with:
           action: cleanup
           zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
