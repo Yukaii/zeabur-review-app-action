@@ -79,6 +79,7 @@ PR_NUMBER=123 ./zeabur-review-app.sh status
 - `UPDATE_IMAGE_SERVICES` - Comma-separated service patterns to update with commit tags
 - `DOMAIN_PREFIX` - Domain prefix for review apps (default: "app")
 - `IMAGE_TAG_PREFIX` - Image tag prefix (default: "sha")
+- `KEEP_RECENT_COMMITS` - Number of recent commits to keep when cleaning up PR (default: "3")
 - `ZEABUR_TEMPLATE_FILE` - Path to zeabur.yaml template (default: "./zeabur.yaml")
 - `ZEABUR_CONFIG_FILE` - Path to config file (default: "./zeabur-config.env")
 
@@ -94,6 +95,7 @@ CLEANUP_SERVICES="Database"
 UPDATE_IMAGE_SERVICES="Backend,Frontend"
 DOMAIN_PREFIX="myapp"
 IMAGE_TAG_PREFIX="sha"
+KEEP_RECENT_COMMITS="5"
 ```
 
 ### Template File
@@ -144,6 +146,7 @@ spec:
 | `update-image-services` | Service patterns to update with commit tags | No | `""` |
 | `domain-prefix` | Domain prefix for review apps | No | `app` |
 | `image-tag-prefix` | Image tag prefix | No | `sha` |
+| `keep-recent-commits` | Number of recent commits to keep when cleaning up PR | No | `3` |
 | `template-file` | Path to zeabur.yaml template | No | `zeabur.yaml` |
 | `config-file` | Path to config file | No | `zeabur-config.env` |
 
@@ -163,7 +166,7 @@ spec:
 2. **Image Tagging**: Services matching `UPDATE_IMAGE_SERVICES` get commit-specific image tags
 3. **Domain Management**: Each deployment gets a unique domain like `{prefix}-pr-{number}-{commit}.zeabur.app`
 4. **Dependency Updates**: Service dependencies are automatically updated to match new names
-5. **Cleanup**: Services can be automatically cleaned up after deployment or when PRs close
+5. **Smart Cleanup**: When cleaning up PRs, the action keeps the most recent N commits (configurable via `KEEP_RECENT_COMMITS`) and removes older ones to prevent accumulation of outdated deployments
 
 ## Requirements
 

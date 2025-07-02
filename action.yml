@@ -42,6 +42,10 @@ inputs:
     description: 'Image tag prefix for commit-specific images'
     required: false
     default: 'sha'
+  keep-recent-commits:
+    description: 'Number of recent commits to keep when cleaning up PR'
+    required: false
+    default: '3'
   template-file:
     description: 'Path to zeabur.yaml template file'
     required: false
@@ -113,6 +117,7 @@ runs:
         UPDATE_IMAGE_SERVICES: ${{ inputs.update-image-services }}
         DOMAIN_PREFIX: ${{ inputs.domain-prefix }}
         IMAGE_TAG_PREFIX: ${{ inputs.image-tag-prefix }}
+        KEEP_RECENT_COMMITS: ${{ inputs.keep-recent-commits }}
         ZEABUR_TEMPLATE_FILE: ${{ inputs.template-file }}
         ZEABUR_CONFIG_FILE: ${{ inputs.config-file }}
       run: |
