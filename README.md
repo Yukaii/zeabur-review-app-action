@@ -80,6 +80,7 @@ PR_NUMBER=123 ./zeabur-review-app.sh status
 - `DOMAIN_PREFIX` - Domain prefix for review apps (default: "app")
 - `IMAGE_TAG_PREFIX` - Image tag prefix (default: "sha")
 - `KEEP_RECENT_COMMITS` - Number of recent commits to keep when cleaning up PR (default: "3")
+- `PR_BASE_BRANCH` - Base branch for the pull request to calculate commits against (default: "main")
 - `ZEABUR_TEMPLATE_FILE` - Path to zeabur.yaml template (default: "./zeabur.yaml")
 - `ZEABUR_CONFIG_FILE` - Path to config file (default: "./zeabur-config.env")
 
@@ -96,6 +97,7 @@ UPDATE_IMAGE_SERVICES="Backend,Frontend"
 DOMAIN_PREFIX="myapp"
 IMAGE_TAG_PREFIX="sha"
 KEEP_RECENT_COMMITS="5"
+PR_BASE_BRANCH="develop"
 ```
 
 ### Template File
@@ -147,6 +149,7 @@ spec:
 | `domain-prefix` | Domain prefix for review apps | No | `app` |
 | `image-tag-prefix` | Image tag prefix | No | `sha` |
 | `keep-recent-commits` | Number of recent commits to keep when cleaning up PR | No | `3` |
+| `pr-base-branch` | Base branch for the pull request to calculate commits against | No | `main` |
 | `template-file` | Path to zeabur.yaml template | No | `zeabur.yaml` |
 | `config-file` | Path to config file | No | `zeabur-config.env` |
 
@@ -218,6 +221,7 @@ This ensures that long-running PRs don't accumulate too many review app deployme
     update-image-services: "Backend,Frontend"
     domain-prefix: "disfactory"
     keep-recent-commits: "5"
+    pr-base-branch: "develop"
     template-file: "deployment/zeabur.yaml"
 ```
 
@@ -232,6 +236,7 @@ This ensures that long-running PRs don't accumulate too many review app deployme
     zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
     pr-number: ${{ github.event.number }}
     keep-recent-commits: "3"  # Keep only the 3 most recent commits
+    pr-base-branch: ${{ github.event.pull_request.base.ref }}
 ```
 
 ### Complete Workflow Example

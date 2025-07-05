@@ -46,6 +46,10 @@ inputs:
     description: 'Number of recent commits to keep when cleaning up PR'
     required: false
     default: '3'
+  pr-base-branch:
+    description: 'Base branch for the pull request to calculate commits against'
+    required: false
+    default: 'main'
   template-file:
     description: 'Path to zeabur.yaml template file'
     required: false
@@ -118,6 +122,7 @@ runs:
         DOMAIN_PREFIX: ${{ inputs.domain-prefix }}
         IMAGE_TAG_PREFIX: ${{ inputs.image-tag-prefix }}
         KEEP_RECENT_COMMITS: ${{ inputs.keep-recent-commits }}
+        PR_BASE_BRANCH: ${{ inputs.pr-base-branch || github.event.pull_request.base.ref || 'main' }}
         ZEABUR_TEMPLATE_FILE: ${{ inputs.template-file }}
         ZEABUR_CONFIG_FILE: ${{ inputs.config-file }}
       run: |
