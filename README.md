@@ -79,6 +79,8 @@ PR_NUMBER=123 ./zeabur-review-app.sh status
 - `UPDATE_IMAGE_SERVICES` - Comma-separated service patterns to update with commit tags
 - `DOMAIN_PREFIX` - Domain prefix for review apps (default: "app")
 - `IMAGE_TAG_PREFIX` - Image tag prefix (default: "sha")
+- `KEEP_RECENT_COMMITS` - Number of recent commits to keep when cleaning up PR (default: "3")
+- `PR_BASE_BRANCH` - Base branch for the pull request to calculate commits against (default: "main")
 - `ZEABUR_TEMPLATE_FILE` - Path to zeabur.yaml template (default: "./zeabur.yaml")
 - `ZEABUR_CONFIG_FILE` - Path to config file (default: "./zeabur-config.env")
 
@@ -94,6 +96,8 @@ CLEANUP_SERVICES="Database"
 UPDATE_IMAGE_SERVICES="Backend,Frontend"
 DOMAIN_PREFIX="myapp"
 IMAGE_TAG_PREFIX="sha"
+KEEP_RECENT_COMMITS="5"
+PR_BASE_BRANCH="develop"
 ```
 
 ### Template File
@@ -144,6 +148,8 @@ spec:
 | `update-image-services` | Service patterns to update with commit tags | No | `""` |
 | `domain-prefix` | Domain prefix for review apps | No | `app` |
 | `image-tag-prefix` | Image tag prefix | No | `sha` |
+| `keep-recent-commits` | Number of recent commits to keep when cleaning up PR | No | `3` |
+| `pr-base-branch` | Base branch for the pull request to calculate commits against | No | `main` |
 | `template-file` | Path to zeabur.yaml template | No | `zeabur.yaml` |
 | `config-file` | Path to config file | No | `zeabur-config.env` |
 
@@ -163,7 +169,19 @@ spec:
 2. **Image Tagging**: Services matching `UPDATE_IMAGE_SERVICES` get commit-specific image tags
 3. **Domain Management**: Each deployment gets a unique domain like `{prefix}-pr-{number}-{commit}.zeabur.app`
 4. **Dependency Updates**: Service dependencies are automatically updated to match new names
-5. **Cleanup**: Services can be automatically cleaned up after deployment or when PRs close
+5. **Smart Cleanup**: When cleaning up PRs, the action keeps the most recent N commits (configurable via `KEEP_RECENT_COMMITS`) and removes older ones to prevent accumulation of outdated deployments
+
+### Cleanup Behavior
+
+The action provides two cleanup modes:
+
+- **Specific Commit Cleanup**: When `COMMIT_SHA` is provided, only services for that specific commit are removed
+- **Smart PR Cleanup**: When no `COMMIT_SHA` is provided, the action:
+  1. Discovers all commits for the PR from git history or existing services
+  2. Keeps the N most recent commits (default: 3, configurable via `KEEP_RECENT_COMMITS`)
+  3. Removes services for older commits to prevent accumulation of outdated deployments
+  
+This ensures that long-running PRs don't accumulate too many review app deployments while preserving recent ones for testing.
 
 ## Requirements
 
@@ -202,19 +220,54 @@ spec:
     cleanup-services: "Database"
     update-image-services: "Backend,Frontend"
     domain-prefix: "disfactory"
+    keep-recent-commits: "5"
+    pr-base-branch: "develop"
     template-file: "deployment/zeabur.yaml"
 ```
 
-### Cleanup on PR Close
+### Smart Cleanup with Commit Retention
 
 ```yaml
-name: Cleanup Review App
+- name: Cleanup Old Review Apps
+  uses: Yukaii/zeabur-review-app-action@main
+  with:
+    action: cleanup
+    zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
+    zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
+    pr-number: ${{ github.event.number }}
+    keep-recent-commits: "3"  # Keep only the 3 most recent commits
+    pr-base-branch: ${{ github.event.pull_request.base.ref }}
+```
+
+### Complete Workflow Example
+
+```yaml
+name: Review App Management
 on:
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, closed]
 
 jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Deploy Review App
+        uses: Yukaii/zeabur-review-app-action@main
+        with:
+          action: deploy
+          zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
+          zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
+          pr-number: ${{ github.event.number }}
+          commit-sha: ${{ github.sha }}
+          project-name: "My Project"
+          keep-recent-commits: "3"
+
   cleanup:
+    if: github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Cleanup Review App
@@ -224,6 +277,7 @@ jobs:
           zeabur-api-key: ${{ secrets.ZEABUR_API_KEY }}
           zeabur-project-id: ${{ secrets.ZEABUR_PROJECT_ID }}
           pr-number: ${{ github.event.number }}
+          keep-recent-commits: "3"  # Keeps 3 most recent commits, removes older ones
 ```
 
 ## License

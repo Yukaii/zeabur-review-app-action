@@ -17,6 +17,7 @@
 # - UPDATE_IMAGE_SERVICES: Comma-separated list of service name patterns to update with commit tags (default: "")
 # - DOMAIN_PREFIX: Domain prefix for review apps (default: "app")
 # - IMAGE_TAG_PREFIX: Image tag prefix (default: "sha")
+# - KEEP_RECENT_COMMITS: Number of recent commits to keep when cleaning up PR (default: "3")
 
 set -e
 
@@ -41,6 +42,8 @@ CLEANUP_SERVICES="${CLEANUP_SERVICES:-}"
 UPDATE_IMAGE_SERVICES="${UPDATE_IMAGE_SERVICES:-}"
 DOMAIN_PREFIX="${DOMAIN_PREFIX:-app}"
 IMAGE_TAG_PREFIX="${IMAGE_TAG_PREFIX:-sha}"
+KEEP_RECENT_COMMITS="${KEEP_RECENT_COMMITS:-3}"
+PR_BASE_BRANCH="${PR_BASE_BRANCH:-main}"
 
 # Logging functions
 log_info() { echo "ℹ️  $1" >&2; }
@@ -461,6 +464,155 @@ delete_service() {
     graphql_request "$mutation" "$variables"
 }
 
+# Get commits from PR branch
+get_pr_commits() {
+    local pr_number="$1"
+    local base_branch="${2:-${PR_BASE_BRANCH:-main}}"
+
+    log_info "Getting commits for PR #${pr_number}"
+
+    # Try to get commits from the PR branch
+    # This works if we're in a git repository with the PR branch checked out
+    local commits=()
+
+    # Try different methods to get PR commits
+    if git rev-parse --verify HEAD >/dev/null 2>&1; then
+        # Method 1: If we have a current HEAD, try to get commits from current branch
+        local current_commits
+        if current_commits=$(git rev-list --max-count=20 HEAD 2>/dev/null); then
+            while IFS= read -r commit; do
+                local short_sha="${commit:0:7}"
+                commits+=("$short_sha")
+            done <<< "$current_commits"
+        fi
+
+        # Method 2: Try to get commits using merge base with the actual base branch
+        if [ ${#commits[@]} -eq 0 ]; then
+            # Try with the specified base branch first
+            for branch_prefix in "origin/" ""; do
+                local target_branch="${branch_prefix}${base_branch}"
+                if git rev-parse --verify "$target_branch" >/dev/null 2>&1; then
+                    local merge_base
+                    if merge_base=$(git merge-base HEAD "$target_branch" 2>/dev/null); then
+                        local branch_commits
+                        if branch_commits=$(git rev-list --max-count=20 "${merge_base}..HEAD" 2>/dev/null); then
+                            while IFS= read -r commit; do
+                                [ -n "$commit" ] && commits+=("${commit:0:7}")
+                            done <<< "$branch_commits"
+                            break 2
+                        fi
+                    fi
+                fi
+            done
+
+            # Fallback to common branches if base branch method failed
+            if [ ${#commits[@]} -eq 0 ]; then
+                for branch in "origin/main" "origin/master" "main" "master"; do
+                    if git rev-parse --verify "$branch" >/dev/null 2>&1; then
+                        local merge_base
+                        if merge_base=$(git merge-base HEAD "$branch" 2>/dev/null); then
+                            local branch_commits
+                            if branch_commits=$(git rev-list --max-count=20 "${merge_base}..HEAD" 2>/dev/null); then
+                                while IFS= read -r commit; do
+                                    [ -n "$commit" ] && commits+=("${commit:0:7}")
+                                done <<< "$branch_commits"
+                                break
+                            fi
+                        fi
+                    fi
+                done
+            fi
+        fi
+    fi
+
+    # If we still don't have commits, try to get them from existing services
+    if [ ${#commits[@]} -eq 0 ]; then
+        log_info "Could not determine commits from git history, scanning existing services"
+        local services_response
+        services_response=$(list_services "$ZEABUR_PROJECT_ID")
+
+        if ! echo "$services_response" | jq -e '.errors' > /dev/null; then
+            local service_commits
+            service_commits=$(echo "$services_response" | jq -r --arg pr "$pr_number" '
+                .data.services.edges[] |
+                select(.node.name | test("pr-" + $pr + "-[a-f0-9]+$")) |
+                .node.name |
+                capture("pr-" + $pr + "-(?<commit>[a-f0-9]+)$") |
+                .commit
+            ' | sort -u)
+
+            while IFS= read -r commit; do
+                [ -n "$commit" ] && commits+=("$commit")
+            done <<< "$service_commits"
+        fi
+    fi
+
+    # Sort commits by timestamp if possible (most recent first)
+    if [ ${#commits[@]} -gt 0 ] && command -v git &> /dev/null; then
+        local sorted_commits=()
+        for commit in "${commits[@]}"; do
+            # Try to expand short SHA to full SHA and get timestamp
+            local full_sha
+            if full_sha=$(git rev-parse --verify "${commit}" 2>/dev/null); then
+                local timestamp
+                timestamp=$(git log -1 --format=%ct "$full_sha" 2>/dev/null || echo "0")
+                sorted_commits+=("${timestamp}:${commit}")
+            else
+                # If we can't get timestamp, assume it's old
+                sorted_commits+=("0:${commit}")
+            fi
+        done
+
+        # Sort by timestamp (descending) and extract commits
+        local final_commits=()
+        while IFS= read -r entry; do
+            [ -n "$entry" ] && final_commits+=("${entry#*:}")
+        done < <(printf '%s\n' "${sorted_commits[@]}" | sort -rn)
+
+        commits=("${final_commits[@]}")
+    fi
+
+    printf '%s\n' "${commits[@]}"
+}
+
+# Get commits to keep (most recent N commits)
+get_commits_to_keep() {
+    local pr_number="$1"
+    local keep_count="$2"
+
+    local all_commits
+    mapfile -t all_commits < <(get_pr_commits "$pr_number")
+
+    if [ ${#all_commits[@]} -eq 0 ]; then
+        log_info "No commits found for PR #${pr_number}"
+        return 0
+    fi
+
+    log_info "Found ${#all_commits[@]} commits for PR #${pr_number}"
+
+    # Return the most recent N commits
+    local keep_commits=("${all_commits[@]:0:$keep_count}")
+    printf '%s\n' "${keep_commits[@]}"
+}
+
+# Get commits to remove (older commits beyond the keep limit)
+get_commits_to_remove() {
+    local pr_number="$1"
+    local keep_count="$2"
+
+    local all_commits
+    mapfile -t all_commits < <(get_pr_commits "$pr_number")
+
+    if [ ${#all_commits[@]} -le "$keep_count" ]; then
+        log_info "Number of commits (${#all_commits[@]}) is within keep limit ($keep_count), nothing to remove"
+        return 0
+    fi
+
+    # Return commits beyond the keep limit
+    local remove_commits=("${all_commits[@]:$keep_count}")
+    printf '%s\n' "${remove_commits[@]}"
+}
+
 # Cleanup review app services
 cleanup_review_app() {
     local pr_pattern="pr-${PR_NUMBER}-"
@@ -471,9 +623,16 @@ cleanup_review_app() {
     if [ -n "$COMMIT_SHA" ] && [ "$COMMIT_SHA" != "unknown" ]; then
         pr_pattern="pr-${PR_NUMBER}-${COMMIT_SHA_SHORT}"
         log_info "Cleaning up specific commit: $COMMIT_SHA_SHORT"
+        cleanup_specific_commit_services "$pr_pattern"
     else
-        log_info "Cleaning up all services for PR #${PR_NUMBER}"
+        log_info "Cleaning up old commits for PR #${PR_NUMBER}, keeping ${KEEP_RECENT_COMMITS} most recent commits"
+        cleanup_old_commit_services
     fi
+}
+
+# Cleanup services for a specific commit pattern
+cleanup_specific_commit_services() {
+    local pr_pattern="$1"
 
     # List all services
     local services_response
@@ -485,7 +644,7 @@ cleanup_review_app() {
         exit 1
     fi
 
-    # Find services matching the PR pattern
+    # Find services matching the specific PR pattern
     local matching_services
     matching_services=$(echo "$services_response" | jq -r --arg pattern "$pr_pattern" '
         .data.services.edges[] |
@@ -507,26 +666,101 @@ cleanup_review_app() {
         service_id=$(echo "$service_line" | cut -d' ' -f1)
         service_name=$(echo "$service_line" | cut -d' ' -f2-)
 
-        log_info "Deleting service: $service_name ($service_id)"
-
-        local delete_response
-        delete_response=$(delete_service "$service_id")
-
-        if echo "$delete_response" | jq -e '.errors' > /dev/null; then
-            log_error "Failed to delete service $service_name:"
-            echo "$delete_response" | jq '.errors'
-        else
-            local delete_success
-            delete_success=$(echo "$delete_response" | jq -r '.data.deleteService')
-            if [ "$delete_success" = "true" ]; then
-                log_success "Successfully deleted service: $service_name"
-            else
-                log_error "Failed to delete service: $service_name (returned false)"
-            fi
-        fi
+        delete_single_service "$service_id" "$service_name"
     done <<< "$matching_services"
 
-    log_success "Cleanup completed for PR #${PR_NUMBER}"
+    log_success "Cleanup completed for pattern: $pr_pattern"
+}
+
+# Cleanup old commit services while keeping recent ones
+cleanup_old_commit_services() {
+    # Get commits to remove (older than KEEP_RECENT_COMMITS)
+    local commits_to_remove
+    mapfile -t commits_to_remove < <(get_commits_to_remove "$PR_NUMBER" "$KEEP_RECENT_COMMITS")
+
+    if [ ${#commits_to_remove[@]} -eq 0 ]; then
+        log_info "No old commits to clean up for PR #${PR_NUMBER}"
+        return 0
+    fi
+
+    log_info "Found ${#commits_to_remove[@]} old commits to clean up:"
+    printf '  %s\n' "${commits_to_remove[@]}"
+
+    # Get commits to keep for logging
+    local commits_to_keep
+    mapfile -t commits_to_keep < <(get_commits_to_keep "$PR_NUMBER" "$KEEP_RECENT_COMMITS")
+
+    if [ ${#commits_to_keep[@]} -gt 0 ]; then
+        log_info "Keeping ${#commits_to_keep[@]} recent commits:"
+        printf '  %s\n' "${commits_to_keep[@]}"
+    fi
+
+    # List all services
+    local services_response
+    services_response=$(list_services "$ZEABUR_PROJECT_ID")
+
+    if echo "$services_response" | jq -e '.errors' > /dev/null; then
+        log_error "Failed to list services:"
+        echo "$services_response" | jq '.errors'
+        exit 1
+    fi
+
+    # For each commit to remove, find and delete its services
+    for commit in "${commits_to_remove[@]}"; do
+        local commit_pattern="pr-${PR_NUMBER}-${commit}"
+        log_info "Cleaning up services for commit: $commit"
+
+        # Find services matching this specific commit
+        local matching_services
+        matching_services=$(echo "$services_response" | jq -r --arg pattern "$commit_pattern" '
+            .data.services.edges[] |
+            select(.node.name | contains($pattern)) |
+            "\(.node._id) \(.node.name)"
+        ')
+
+        if [ -z "$matching_services" ]; then
+            log_info "No services found for commit: $commit"
+            continue
+        fi
+
+        log_info "Found services to delete for commit $commit:"
+        echo "$matching_services" | sed 's/^/  /'
+
+        # Delete each matching service for this commit
+        while IFS= read -r service_line; do
+            local service_id service_name
+            service_id=$(echo "$service_line" | cut -d' ' -f1)
+            service_name=$(echo "$service_line" | cut -d' ' -f2-)
+
+            delete_single_service "$service_id" "$service_name"
+        done <<< "$matching_services"
+    done
+
+    log_success "Cleanup completed for PR #${PR_NUMBER}, removed ${#commits_to_remove[@]} old commits"
+}
+
+# Delete a single service with error handling
+delete_single_service() {
+    local service_id="$1"
+    local service_name="$2"
+
+    log_info "Deleting service: $service_name ($service_id)"
+
+    local delete_response
+    delete_response=$(delete_service "$service_id")
+
+    if echo "$delete_response" | jq -e '.errors' > /dev/null; then
+        log_error "Failed to delete service $service_name:"
+        echo "$delete_response" | jq '.errors'
+    else
+        local delete_success
+        delete_success=$(echo "$delete_response" | jq -r '.data.deleteService')
+        if [ "$delete_success" = "true" ]; then
+            log_success "Successfully deleted service: $service_name"
+        else
+            log_error "Failed to delete service: $service_name (returned false)"
+        fi
+    fi
 }
 
 # Show status of review app services
@@ -612,6 +846,8 @@ main() {
             echo "  UPDATE_IMAGE_SERVICES - Comma-separated service name patterns to update with commit tags (default: '')"
             echo "  DOMAIN_PREFIX        - Domain prefix for review apps (default: 'app')"
             echo "  IMAGE_TAG_PREFIX     - Image tag prefix (default: 'sha')"
+            echo "  KEEP_RECENT_COMMITS  - Number of recent commits to keep when cleaning up PR (default: '3')"
+            echo "  PR_BASE_BRANCH       - Base branch for the pull request to calculate commits against (default: 'main')"
             echo ""
             echo "Template configuration:"
             echo "  ZEABUR_TEMPLATE_FILE - Path to zeabur.yaml template (default: ./zeabur.yaml)"
